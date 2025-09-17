@@ -328,6 +328,10 @@ dialog::backdrop{background:rgba(0,0,0,.5)}
     };
     dlg.close = function(){
       if(!this.open) return; this.open=false;
+      /* ✅ 把内容放回 <dialog>，避免下次打开是空 */
+      if(this._panel){
+        while (this._panel.firstChild) this.appendChild(this._panel.firstChild);
+      }
       if(this._host){ document.body.removeChild(this._host); this._host=null; }
       if(this._backdrop){ document.body.removeChild(this._backdrop); this._backdrop=null; }
     };
@@ -341,7 +345,10 @@ dialog::backdrop{background:rgba(0,0,0,.5)}
 /* -------------------- 安全工具 & UI 基础 -------------------- */
 const $ = (s, r=document) => r.querySelector(s);
 const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
-function escapeHtml(s){return (s||'').replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;","\"":"&quot;","'":"&#39;"}[m]))}
+/* ✅ 修复 > 转义 */
+function escapeHtml(s){
+  return (s||'').replace(/[&<>"']/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]));
+}
 function uid(){ return Math.random().toString(36).slice(2)+Date.now().toString(36) }
 function openDialog(dlg){ if(!dlg) return; if(dlg.showModal) dlg.showModal(); else dlg.open=true; }
 function closeDialog(dlg){ if(!dlg) return; if(dlg.close) dlg.close(); else dlg.open=false; }
@@ -430,7 +437,12 @@ function pickQuote(){
   if(quoteBox) quoteBox.innerHTML = `${escapeHtml(txt)}<small>${escapeHtml(from)}</small>`;
 }
 function applyQuoteAuto(on){
-  quoteAuto = !!on; if(quoteToggle) quoteToggle.textContent = `自动轮换：${on?'开':'关'}`;
+  quoteAuto = !!on;
+  if(quoteToggle){
+    quoteToggle.textContent = `自动轮换：${on?'开':'关'}`;
+    /* ✅ 同步无障碍状态 */
+    quoteToggle.setAttribute('aria-pressed', on?'true':'false');
+  }
   try{ localStorage.setItem(QUOTE_KEY, on?'1':'0'); }catch{}
   if(quoteTimer){ clearInterval(quoteTimer); quoteTimer=null; }
   if(on) quoteTimer = setInterval(pickQuote, 6000);
@@ -451,8 +463,9 @@ function initMap(){
 function markerPopupHtml(e){
   const m=e.media?.[0]; const src = m? (m.url||m.preview):null;
   const mediaHtml = src? (m.type==='image'
-    ? `<img src="${src}" style="width:160px;height:110px;object-fit:cover;border-radius:8px;border:1px solid var(--line)"`
-    : `<video src="${src}" style="width:160px;height:110px;object-fit:cover;border-radius:8px;border:1px solid var(--line)" muted playsinline></video>`) : '';
+    /* ✅ 补上 > 并可懒加载 */
+    ? `<img src="${src}" loading="lazy" style="width:160px;height:110px;object-fit:cover;border-radius:8px;border:1px solid var(--line)">`
+    : `<video src="${src}" preload="metadata" style="width:160px;height:110px;object-fit:cover;border-radius:8px;border:1px solid var(--line)" muted playsinline></video>`) : '';
   return `<div style="min-width:180px">
     <div style="font-weight:700;margin-bottom:.25rem">${escapeHtml(e.title||'未命名')}</div>
     ${e.date? `<div class="help" style="margin-bottom:.25rem">📅 ${e.date}</div>`:''}
@@ -481,18 +494,18 @@ import {
   getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot,
   query, orderBy, serverTimestamp, enableIndexedDbPersistence
 } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
-import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-storage.js";
+import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-storage.js";
 
 if (!('randomUUID' in crypto)) {
   crypto.randomUUID = ()=>'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0,v=c==='x'?r:(r&0x3|0x8);return v.toString(16)});
 }
 
-// ✅ 使用标准 appspot 域名，避免上传失败
+/* ✅ 使用标准 appspot bucket */
 const firebaseConfig = {
   apiKey: "AIzaSyDuYmrNWhU5vXWpoEVk4IKamkuIjbH6AIo",
   authDomain: "travel-c2459.firebaseapp.com",
   projectId: "travel-c2459",
-  storageBucket: "travel-c2459.firebasestorage.app",
+  storageBucket: "travel-c2459.appspot.com",
   messagingSenderId: "142843430252",
   appId: "1:142843430252:web:089ef1595fc4db65cc9f49",
   measurementId: "G-EK5CCWX8QN"
@@ -560,8 +573,8 @@ function renderList(){
     const src=firstMediaSrc(e);
     const thumbInner = src
       ? (e.media[0].type==='image'
-          ? `<img class="thumb" src="${src}" alt="thumb">`
-          : `<video class="thumb" src="${src}" muted playsinline></video>`)
+          ? `<img class="thumb" src="${src}" loading="lazy" alt="thumb">`
+          : `<video class="thumb" src="${src}" preload="metadata" muted playsinline></video>`)
       : '<div class="thumb" aria-hidden="true"></div>';
     const hasCoord = (typeof e.lat==='number' && typeof e.lng==='number');
     card.innerHTML=`
@@ -591,8 +604,13 @@ function renderList(){
   pager.style.display='flex';
 }
 
-/* 搜索与分页 */
-searchInput?.addEventListener('input', (e)=>{ searchTerm=e.target.value||''; page=1; renderList(); });
+/* 搜索与分页（✅ 200ms 防抖） */
+let searchTimer=null;
+searchInput?.addEventListener('input', (e)=>{
+  const v=e.target.value||'';
+  if(searchTimer) clearTimeout(searchTimer);
+  searchTimer=setTimeout(()=>{ searchTerm=v; page=1; renderList(); }, 200);
+});
 $('#searchClear')?.addEventListener('click', ()=>{ searchTerm=''; if(searchInput) searchInput.value=''; page=1; renderList(); });
 prevPage?.addEventListener('click', ()=>{ if(page>1){ page--; renderList(); }});
 nextPage?.addEventListener('click', ()=>{ page++; renderList(); });
@@ -628,8 +646,8 @@ function renderGallery(items){
     const wrap=document.createElement('div'); wrap.className='media'; wrap.setAttribute('data-id', m.id);
     const src=m.url||m.preview;
     wrap.innerHTML = `${m.type==='image'
-      ? `<img src="${src}" alt="">`
-      : `<video src="${src}" muted playsinline></video>`}
+      ? `<img src="${src}" loading="lazy" alt="">`
+      : `<video src="${src}" preload="metadata" muted playsinline></video>`}
       <span class="badge">${m.type==='image'?'图片':'视频'}</span>
       <div style="position:absolute;left:.4rem;top:.4rem;display:flex;gap:.3rem">
         <button class="btn" data-view="${m.id}" type="button">预览</button>
@@ -667,9 +685,39 @@ gallery?.addEventListener('click', (e)=>{
 });
 $('#clearMedia')?.addEventListener('click', ()=>{ if(confirm('清空这条记录的所有媒体？')) { tempMedia = []; renderGallery(tempMedia); } });
 
-/* 保存/删除 */
+/* -------------------- 上传/删除封装 -------------------- */
+async function compressImage(file, maxW=1920, quality=.85){
+  const img=new Image(); img.src=URL.createObjectURL(file); await img.decode();
+  const scale=Math.min(1,maxW/img.width); const w=Math.round(img.width*scale), h=Math.round(img.height*scale);
+  const cvs=document.createElement('canvas'); cvs.width=w; cvs.height=h;
+  const ctx=cvs.getContext('2d'); ctx.drawImage(img,0,0,w,h);
+  const blob=await new Promise(res=> cvs.toBlob(res,'image/jpeg',quality));
+  URL.revokeObjectURL(img.src);
+  return { blob, width:w, height:h };
+}
+async function uploadMedia(roomId, entryId, fileOrBlob, filename){
+  const mediaId = Math.random().toString(36).slice(2);
+  const path=`rooms/${roomId}/${entryId}/${mediaId}-${(filename||'media').replace(/\s+/g,'_')}`;
+  const r=ref(storage,path); const data=fileOrBlob;
+  const snap=await uploadBytes(r,data); const url=await getDownloadURL(snap.ref);
+  return { mediaId, url, bytes:data.size||0 };
+}
+async function deleteEntryWithMedia(entryId){
+  const it = entries.find(x=>x.id===entryId);
+  const files = (it?.media)||[];
+  /* ✅ 尽力删除对应的云端文件（按 URL 创建引用） */
+  await Promise.allSettled(files.map(m=>{
+    try{ return deleteObject(ref(storage, m.url)); }catch{ return Promise.resolve(); }
+  }));
+  await deleteDoc(doc(db,"rooms",roomId,"entries",entryId));
+}
+
+/* -------------------- 保存/删除 -------------------- */
 $('#saveBtn')?.addEventListener('click', async ()=>{
+  const saveBtn = $('#saveBtn');
   try{
+    /* ✅ 保存态 */
+    if(saveBtn){ saveBtn.disabled=true; var _old=saveBtn.textContent; saveBtn.textContent='正在保存…'; }
     const latNum=parseFloat(latEl?.value||''); const lngNum=parseFloat(lngEl?.value||'');
     const entryId = editingId || crypto.randomUUID();
     const base = {
@@ -684,10 +732,18 @@ $('#saveBtn')?.addEventListener('click', async ()=>{
     const processed=[];
     for(const m of tempMedia){
       if(m.file){
+        const type=(m.file.type||'').toLowerCase();
+        const heic = /heic|heif/i.test(type) || /\.heic$/i.test(m.name||'');
         if(m.type==='image'){
-          const { blob, width, height } = await compressImage(m.file, 1920, .85);
-          const u = await uploadMedia(roomId, entryId, blob, m.name);
-          processed.push({ id:m.id, type:'image', name:m.name, url:u.url, width, height, bytes:u.bytes });
+          if(heic){
+            /* ✅ HEIC/HEIF 直接上传 */
+            const u = await uploadMedia(roomId, entryId, m.file, m.name);
+            processed.push({ id:m.id, type:'image', name:m.name, url:u.url, bytes:u.bytes });
+          }else{
+            const { blob, width, height } = await compressImage(m.file, 1920, .85);
+            const u = await uploadMedia(roomId, entryId, blob, m.name);
+            processed.push({ id:m.id, type:'image', name:m.name, url:u.url, width, height, bytes:u.bytes });
+          }
         }else{
           const u = await uploadMedia(roomId, entryId, m.file, m.name);
           processed.push({ id:m.id, type:'video', name:m.name, url:u.url, bytes:u.bytes });
@@ -700,13 +756,18 @@ $('#saveBtn')?.addEventListener('click', async ()=>{
     await setDoc(docRef, { ...base, media: processed, updatedAt: serverTimestamp() }, { merge:true });
     closeDialog(entryDialog);
   }catch(err){ logErr(err,'save entry'); alert('保存失败，请检查网络或 Firebase 权限。'); }
+  finally{
+    if(saveBtn){ saveBtn.disabled=false; saveBtn.textContent=_old||'保存'; }
+  }
 });
 
 $('#delBtn')?.addEventListener('click', async ()=>{
   if(!editingId) return;
   if(!confirm('确定删除这条记录吗？')) return;
-  try{ await deleteDoc(doc(db,"rooms",roomId,"entries",editingId)); closeDialog(entryDialog); }
-  catch(err){ logErr(err,'delete entry'); alert('删除失败，请稍后再试。'); }
+  try{
+    await deleteEntryWithMedia(editingId);
+    closeDialog(entryDialog);
+  }catch(err){ logErr(err,'delete entry'); alert('删除失败，请稍后再试。'); }
 });
 
 /* 预览器 */
@@ -716,7 +777,7 @@ function openViewer(m){
   const src=m.url||m.preview;
   viewerBody.innerHTML = m.type==='image'
     ? `<img src="${src}" style="max-width:100%">`
-    : `<video src="${src}" controls playsinline style="max-width:100%"></video>`;
+    : `<video src="${src}" controls playsinline preload="metadata" style="max-width:100%"></video>`;
   openDialog(viewer);
 }
 $('#viewerClose')?.addEventListener('click',()=> closeDialog(viewer));
@@ -766,7 +827,7 @@ list?.addEventListener('click', async (ev)=>{
   if(openId){ const it=entries.find(x=>x.id===openId); openEditor(it); }
   if(delId){
     if(confirm('确定删除这条记录吗？')){
-      try{ await deleteDoc(doc(db,"rooms",roomId,"entries",delId)); }catch(err){ logErr(err,'delete in list'); }
+      try{ await deleteEntryWithMedia(delId); }catch(err){ logErr(err,'delete in list'); }
     }
   }
   if(centerId){
@@ -851,27 +912,8 @@ $('#geocodeBtn')?.addEventListener('click', async ()=>{
   finally{ btn.disabled=false; btn.textContent=old; }
 });
 
-/* -------------------- 图片压缩 & 上传 -------------------- */
-async function compressImage(file, maxW=1920, quality=.85){
-  const img=new Image(); img.src=URL.createObjectURL(file); await img.decode();
-  const scale=Math.min(1,maxW/img.width); const w=Math.round(img.width*scale), h=Math.round(img.height*scale);
-  const cvs=document.createElement('canvas'); cvs.width=w; cvs.height=h;
-  const ctx=cvs.getContext('2d'); ctx.drawImage(img,0,0,w,h);
-  const blob=await new Promise(res=> cvs.toBlob(res,'image/jpeg',quality));
-  URL.revokeObjectURL(img.src);
-  return { blob, width:w, height:h };
-}
-async function uploadMedia(roomId, entryId, fileOrBlob, filename){
-  const mediaId = Math.random().toString(36).slice(2);
-  const path=`rooms/${roomId}/${entryId}/${mediaId}-${(filename||'media').replace(/\s+/g,'_')}`;
-  const r=ref(storage,path); const data=fileOrBlob;
-  const snap=await uploadBytes(r,data); const url=await getDownloadURL(snap.ref);
-  return { mediaId, url, bytes:data.size||0 };
-}
-
 /* -------------------- 其他初始化 -------------------- */
 const y=$('#year'); if(y) y.textContent = new Date().getFullYear();
 </script>
 </body>
 </html>
-
