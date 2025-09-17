@@ -309,7 +309,8 @@
               <p class="help">一次可多选；支持 <code>.jpg .png .webp .gif</code> 与 <code>.mp4 .webm</code>。</p>
             </div>
             <div style="display:flex;gap:.5rem">
-              <input id="filePick" type="file" accept="image/*,video/*" multiple style="display:none" capture="environment">
+              <!-- ✅ 关键修复：去掉 capture 属性，iPhone 将显示“照片图库/拍照或录像/浏览” -->
+              <input id="filePick" type="file" accept="image/*,video/*" multiple style="display:none">
               <button class="btn" id="pickBtn" type="button">添加文件</button>
               <button class="btn danger" id="clearMedia" type="button">清空媒体</button>
             </div>
@@ -518,7 +519,7 @@
 
     /* ============ 列表渲染、搜索、分页 ============ */
     const list=$('#list'), empty=$('#empty'), noResult=$('#noResult');
-    const pager=$('#pager'), prevPage=$('#prevPage'), nextPage=$('#nextPage'), pageInfo=$('#pageInfo');
+    const pager=$('#pager'), prevPage=$('#prevPage'), nextPage=$('#nextPage'), pageInfo=$('#pageInfo']);
     const searchInput = $('#searchInput'), searchClear = $('#searchClear');
 
     function escapeHtml(s){return (s||'').replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;","\"":"&quot;","'":"&#39;"}[m]))}
