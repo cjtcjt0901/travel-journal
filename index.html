@@ -196,7 +196,7 @@
         <p class="help">支持标题、日期、地点、文字笔记，以及多张 <strong>照片</strong> 与 <strong>视频</strong>；内置 <strong>在线地图</strong>；iPhone Safari 适配。</p>
 
         <div class="row">
-          <!-- ✅ 旅行语录（已移到左侧原“收纳盒”位置） -->
+          <!-- 旅行语录 -->
           <div class="card">
             <h3>旅行语录</h3>
             <div id="quoteBox" class="quote" style="font-size:1.05rem;line-height:1.7">出发，才会遇见风景。<small>— 与她的旅程</small></div>
@@ -211,7 +211,6 @@
             </div>
             <p class="help" style="margin-top:.6rem">关闭页面后设置会自动记住。</p>
           </div>
-          <!-- 右侧空位留白（保留两列栅格在大屏上更美观） -->
         </div>
       </div>
     </section>
@@ -306,11 +305,17 @@
           <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem">
             <div>
               <strong>照片 / 视频</strong>
-              <p class="help">一次可多选；支持 <code>.jpg .png .webp .gif</code> 与 <code>.mp4 .webm</code>。</p>
+              <p class="help">一次可多选；支持 <code>.jpg .png .webp .gif</code> 与 <code>.mp4 .webm</code>。iPhone：选相册请点“从相册/文件”；想直接拍摄请点“打开相机”。</p>
             </div>
-            <div style="display:flex;gap:.5rem">
-              <input id="filePick" type="file" accept="image/*,video/*" multiple style="display:none" capture="environment">
-              <button class="btn" id="pickBtn" type="button">添加文件</button>
+            <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+              <!-- ✅ 相册/文件（无 capture，支持进照片库/文件，多选） -->
+              <input id="filePickLibrary" type="file" accept="image/*,video/*" multiple style="display:none">
+              <button class="btn" id="pickFromLibraryBtn" type="button">从相册/文件</button>
+
+              <!-- ✅ 相机直拍（保留 capture） -->
+              <input id="filePickCamera" type="file" accept="image/*,video/*" multiple style="display:none" capture="environment">
+              <button class="btn" id="pickFromCameraBtn" type="button">打开相机</button>
+
               <button class="btn danger" id="clearMedia" type="button">清空媒体</button>
             </div>
           </div>
@@ -402,7 +407,7 @@
       });
     }
 
-    // === Firebase 配置（保持不变） ===
+    // === Firebase 配置 ===
     const firebaseConfig = {
       apiKey: "AIzaSyDuYmrNWhU5vXWpoEVk4IKamkuIjbH6AIo",
       authDomain: "travel-c2459.firebaseapp.com",
@@ -518,7 +523,7 @@
 
     /* ============ 列表渲染、搜索、分页 ============ */
     const list=$('#list'), empty=$('#empty'), noResult=$('#noResult');
-    const pager=$('#pager'), prevPage=$('#prevPage'), nextPage=$('#nextPage'), pageInfo=$('#pageInfo');
+    const pager=$('#pager'), prevPage=$('#prevPage'), nextPage=$('#nextPage'), pageInfo=$('#pageInfo']);
     const searchInput = $('#searchInput'), searchClear = $('#searchClear');
 
     function escapeHtml(s){return (s||'').replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;","\"":"&quot;","'":"&#39;"}[m]))}
@@ -677,9 +682,12 @@
       }
     }
 
-    $('#pickBtn')?.addEventListener('click', ()=> $('#filePick')?.click());
-    $('#filePick')?.addEventListener('change', async (e)=>{
-      const files=[...e.target.files||[]];
+    // ✅ 新的两个入口：相册/文件 & 相机
+    $('#pickFromLibraryBtn')?.addEventListener('click', ()=> $('#filePickLibrary')?.click());
+    $('#pickFromCameraBtn')?.addEventListener('click', ()=> $('#filePickCamera')?.click());
+
+    const handleFiles = async (fileList)=>{
+      const files=[...fileList||[]];
       for(const f of files){
         const isVideo=f.type.startsWith('video/'); const isImage=f.type.startsWith('image/');
         if(!isVideo && !isImage) continue;
@@ -687,6 +695,14 @@
         tempMedia.push({ id:uid(), type:isVideo?'video':'image', name:f.name, file:f, preview });
       }
       renderGallery(tempMedia);
+    };
+
+    $('#filePickLibrary')?.addEventListener('change', async (e)=>{
+      await handleFiles(e.target.files);
+      e.target.value='';
+    });
+    $('#filePickCamera')?.addEventListener('change', async (e)=>{
+      await handleFiles(e.target.files);
       e.target.value='';
     });
 
@@ -894,10 +910,9 @@
       ['和你在一起，哪里都是远方。','— 与她的旅程'],
       ['世界很大，刚好我们一起。','— 与她的旅程'],
       ['最好的时光，是在路上，也是在人群中找到你。','— 与她的旅程'],
-      ['把喜欢的一切装进行囊：阳光、海风、和你的笑。','— 与她的旅程'],
-      ['去看山海，也去看你眼里的光。','— 与她的旅程']
+      ['把喜欢的一切装进行囊：阳光、海风、和你的笑。','— 与她的旅程']
     ];
-    const quoteBox = $('#quoteBox'), quoteNext = $('#quoteNext'), quoteToggle = $('#quoteToggle'), quoteHint=$('#quoteHint');
+    const quoteBox = $('#quoteBox'), quoteNext = $('#quoteNext'), quoteToggle = $('#quoteToggle'), quoteHint=$('#quoteHint']);
     let autoTimer=null, autoOn = (localStorage.getItem(QUOTE_KEY)||'0')==='1';
 
     function pickQuote(){
